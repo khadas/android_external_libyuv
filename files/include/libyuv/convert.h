@@ -242,6 +242,13 @@ int ConvertToI420(const uint8* src_frame, size_t src_size,
                   RotationMode rotation,
                   uint32 format);
 
+LIBYUV_API
+int ConvertMjpegToNV21(const uint8* src_frame, size_t src_size,
+                  uint8* dst_y, int dst_stride_y,
+                  uint8* dst_uv, int dst_stride_uv,
+                  int src_width, int src_height,
+                  int dst_width, int dst_height,
+                  uint32 format);
 #ifdef __cplusplus
 }  // extern "C"
 }  // namespace libyuv

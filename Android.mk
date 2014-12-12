@@ -18,9 +18,10 @@ common_SRC_FILES := \
     files/source/row_posix.cc \
     files/source/scale.cc \
     files/source/scale_argb.cc \
-    files/source/video_common.cc
+    files/source/video_common.cc \
+    files/source/mjpeg_decoder.cc \
 
-common_CFLAGS := -Wall -fexceptions
+common_CFLAGS := -Wall
 
 ifeq ($(TARGET_ARCH_VARIANT),armv7-a-neon)
     common_CFLAGS += -DLIBYUV_NEON
@@ -46,7 +47,9 @@ LOCAL_NDK_STL_VARIANT := stlport_static
 
 LOCAL_SRC_FILES := $(common_SRC_FILES)
 LOCAL_CFLAGS += $(common_CFLAGS)
-LOCAL_C_INCLUDES += $(common_C_INCLUDES)
+LOCAL_CFLAGS += -DHAVE_JPEG
+LOCAL_C_INCLUDES += $(common_C_INCLUDES) \
+                    external/jpeg/
 
 LOCAL_MODULE:= libyuv_static
 LOCAL_MODULE_TAGS := optional

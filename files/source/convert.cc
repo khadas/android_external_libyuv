@@ -122,6 +122,16 @@ static void HalfRow_C(const uint8* src_uv, int src_uv_stride,
   }
 }
 
+
+static void HalfRowUV_C(const uint8* src_u, int src_u_stride,
+        const uint8* src_v, int src_v_stride,
+        uint8* dst_uv, int pix) {
+  for (int x = 0, i = 0; x < pix; ++x) {
+    dst_uv[i++] = (src_v[x] + src_v[src_v_stride + x] + 1) >> 1;
+    dst_uv[i++] = (src_u[x] + src_u[src_u_stride + x] + 1) >> 1;
+  }
+}
+
 LIBYUV_API
 int I422ToI420(const uint8* src_y, int src_stride_y,
                const uint8* src_u, int src_stride_u,
@@ -186,6 +196,52 @@ int I422ToI420(const uint8* src_y, int src_stride_y,
   }
   return 0;
 }
+
+
+LIBYUV_API
+int I422ToNV21(const uint8* src_y, int src_stride_y,
+               const uint8* src_u, int src_stride_u,
+               const uint8* src_v, int src_stride_v,
+               uint8* dst_y, int dst_stride_y,
+               uint8* dst_uv, int dst_stride_uv,
+               int width, int height) {
+  if (!src_y || !src_u || !src_v ||
+      !dst_y || !dst_uv||
+      width <= 0 || height == 0) {
+    return -1;
+  }
+  // Negative height means invert the image.
+  if (height < 0) {
+    height = -height;
+    src_y = src_y + (height - 1) * src_stride_y;
+    src_u = src_u + (height - 1) * src_stride_u;
+    src_v = src_v + (height - 1) * src_stride_v;
+    src_stride_y = -src_stride_y;
+    src_stride_u = -src_stride_u;
+    src_stride_v = -src_stride_v;
+  }
+  int halfwidth = (width + 1) >> 1;
+
+  // Copy Y plane
+  if (dst_y) {
+    CopyPlane(src_y, src_stride_y, dst_y, dst_stride_y, width, height);
+  }
+
+  // SubSample UV plane.
+  int y;
+  for (y = 0; y < height - 1; y += 2) {
+    HalfRowUV_C(src_u, src_stride_u, src_v, src_stride_v, dst_uv, halfwidth);
+    src_u += src_stride_u * 2;
+    src_v += src_stride_v * 2;
+    dst_uv += dst_stride_uv * 2;
+  }
+  if (height & 1) {
+    HalfRowUV_C(src_u, 0, src_v, 0, dst_uv, halfwidth);
+  }
+
+  return 0;
+}
+
 
 // Blends 32x2 pixels to 16x1
 // source in scale.cc
@@ -1523,6 +1579,14 @@ struct I420Buffers {
   int h;
 };
 
+struct NV21Buffers {
+  uint8* y;
+  int y_stride;
+  uint8* uv;
+  int uv_stride;
+  int w;
+  int h;
+};
 static void JpegCopyI420(void* opaque,
                          const uint8* const* data,
                          const int* strides,
@@ -1558,6 +1622,24 @@ static void JpegI422ToI420(void* opaque,
   dest->v += ((rows + 1) >> 1) * dest->v_stride;
   dest->h -= rows;
 }
+
+
+static void JpegI422ToNV21(void* opaque,
+                           const uint8* const* data,
+                           const int* strides,
+                           int rows) {
+  NV21Buffers* dest = static_cast<NV21Buffers*>(opaque);
+  I422ToNV21(data[0], strides[0],
+             data[1], strides[1],
+             data[2], strides[2],
+             dest->y, dest->y_stride,
+             dest->uv, dest->uv_stride,
+             dest->w, rows);
+  dest->y += rows * dest->y_stride;
+  dest->uv += rows * dest->uv_stride;
+  dest->h -= rows;
+}
+
 
 static void JpegI444ToI420(void* opaque,
                            const uint8* const* data,
@@ -1696,8 +1778,61 @@ int MJPGToI420(const uint8* sample,
       return 1;
     }
   }
-  return 0;
+
+  if (ret == true)
+      return 0;
+  else
+      return -1;
 }
+
+
+LIBYUV_API
+int MJPGToNV21(const uint8* sample,
+               size_t sample_size,
+               uint8* y, int y_stride,
+               uint8* uv, int uv_stride,
+               int w, int h,
+               int dw, int dh) {
+  if (sample_size == kUnknownDataSize) {
+    // ERROR: MJPEG frame size unknown
+    return -1;
+  }
+
+  // TODO(fbarchard): Port to C
+  MJpegDecoder mjpeg_decoder;
+  bool ret = mjpeg_decoder.LoadFrame(sample, sample_size);
+  if (ret && (mjpeg_decoder.GetWidth() != w ||
+              mjpeg_decoder.GetHeight() != h)) {
+    // ERROR: MJPEG frame has unexpected dimensions
+    mjpeg_decoder.UnloadFrame();
+    return 1;  // runtime failure
+  }
+  if (ret) {
+    NV21Buffers bufs = { y, y_stride, uv, uv_stride, dw, dh };
+    // YUV422
+    if (mjpeg_decoder.GetColorSpace() ==
+                   MJpegDecoder::kColorSpaceYCbCr &&
+               mjpeg_decoder.GetNumComponents() == 3 &&
+               mjpeg_decoder.GetVertSampFactor(0) == 1 &&
+               mjpeg_decoder.GetHorizSampFactor(0) == 2 &&
+               mjpeg_decoder.GetVertSampFactor(1) == 1 &&
+               mjpeg_decoder.GetHorizSampFactor(1) == 1 &&
+               mjpeg_decoder.GetVertSampFactor(2) == 1 &&
+               mjpeg_decoder.GetHorizSampFactor(2) == 1) {
+      ret = mjpeg_decoder.DecodeToCallback(&JpegI422ToNV21, &bufs, dw, dh);
+    } else {
+      // ERROR: Unable to convert MJPEG frame because format is not supported
+      mjpeg_decoder.UnloadFrame();
+      return 1;
+    }
+  }
+
+  if (ret == true)
+     return 0;
+  else
+     return -1;
+}
+
 #endif
 
 // Convert camera sample to I420 with cropping, rotation and vertical flip.
@@ -2074,6 +2209,42 @@ int ConvertToI420(const uint8* sample,
 
   return r;
 }
+
+
+
+#ifdef HAVE_JPEG
+LIBYUV_API
+int ConvertMjpegToNV21(const uint8* sample,
+                  size_t sample_size,
+                  uint8* y, int y_stride,
+                  uint8* uv, int uv_stride,
+                  int src_width, int src_height,
+                  int dst_width, int dst_height,
+                  uint32 format) {
+  if (!y || !uv || !sample ||
+      src_width <= 0 || dst_width <= 0  ||
+      src_height == 0 || dst_height == 0) {
+    return -1;
+  }
+  int abs_src_height = (src_height < 0) ? -src_height : src_height;
+  int inv_dst_height = (dst_height < 0) ? -dst_height : dst_height;
+  if (src_height < 0) {
+    inv_dst_height = -inv_dst_height;
+  }
+  int r = 0;
+
+  if (format == FOURCC_MJPG) {
+      r = MJPGToNV21(sample, sample_size,
+                     y, y_stride,
+                     uv, uv_stride,
+                     src_width, abs_src_height, dst_width, inv_dst_height);
+  } else {
+      r = -1;  // unknown fourcc - return failure code.
+  }
+
+  return r;
+}
+#endif
 
 #ifdef __cplusplus
 }  // extern "C"

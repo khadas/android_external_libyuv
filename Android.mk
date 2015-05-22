@@ -1,6 +1,6 @@
 # This is the Android makefile for google3/third_party/libsrtp so that we can
 # build it with the Android NDK.
-ifeq ($(TARGET_ARCH),arm)
+ifeq ($(TARGET_ARCH),$(filter $(TARGET_ARCH),arm, arm64))
 
 LOCAL_PATH := $(call my-dir)
 
@@ -46,8 +46,14 @@ LOCAL_SDK_VERSION := 9
 LOCAL_NDK_STL_VARIANT := stlport_static
 
 LOCAL_SRC_FILES := $(common_SRC_FILES)
-LOCAL_CFLAGS += $(common_CFLAGS)
+LOCAL_SRC_FILES_arm := \
+    files/source/compare_neon.cc \
+    files/source/rotate_neon.cc \
+    files/source/row_neon.cc \
+    files/source/scale_neon.cc
+#LOCAL_CFLAGS += $(common_CFLAGS)
 LOCAL_CFLAGS += -DHAVE_JPEG
+LOCAL_CFLAGS_arm += -DLIBYUV_NEON
 LOCAL_C_INCLUDES += $(common_C_INCLUDES) \
                     external/jpeg/
 

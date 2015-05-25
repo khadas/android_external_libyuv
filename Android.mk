@@ -1,6 +1,6 @@
 # This is the Android makefile for google3/third_party/libsrtp so that we can
 # build it with the Android NDK.
-ifeq ($(TARGET_ARCH),$(filter $(TARGET_ARCH),arm, arm64))
+ifeq ($(TARGET_ARCH),$(filter $(TARGET_ARCH),arm arm64))
 
 LOCAL_PATH := $(call my-dir)
 

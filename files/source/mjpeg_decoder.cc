@@ -91,6 +91,7 @@ bool ValidateJpeg(const uint8* sample, size_t sample_size) {
     // ERROR: Invalid jpeg initial start code
     return false;
   }
+#if 0
   bool soi = true;
   int total_eoi = 0;
   for (int i = 2; i < static_cast<int>(sample_size) - 1; ++i) {
@@ -109,6 +110,7 @@ bool ValidateJpeg(const uint8* sample, size_t sample_size) {
     // ERROR: Invalid jpeg end code not found. Size sample_size
     return false;
   }
+#endif
   return true;
 }
 

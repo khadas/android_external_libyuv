@@ -61,3 +61,5 @@ LOCAL_MODULE:= libyuv_static
 LOCAL_MODULE_TAGS := optional
 
 include $(BUILD_STATIC_LIBRARY)
+
+endif

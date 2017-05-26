@@ -411,6 +411,175 @@ LIBYUV_BOOL MJpegDecoder::DecodeToCallback(CallbackFunction fn, void* opaque,
   return FinishDecode();
 }
 
+bool MJpegDecoder::DecodeToCallbackMultiThD(struct decode_multi_thd_s * decoder, int thread_num, CallbackFunction_flag fn, void* opaque,
+    int dst_width, int dst_height) {
+  unsigned char skip_flag [2];
+
+  if (dst_width != GetWidth() ||
+      dst_height > GetHeight()) {
+    // ERROR: Bad dimensions
+    return false;
+  }
+#ifdef HAVE_SETJMP
+  if (setjmp(error_mgr_->setjmp_buffer)) {
+    // We called into jpeglib, it experienced an error sometime during this
+    // function call, and we called longjmp() and rewound the stack to here.
+    // Return error.
+    return false;
+  }
+#endif
+  if (!StartDecode()) {
+    return false;
+  }
+  SetScanlinePointers(databuf_);
+  int lines_left = dst_height;
+  // TODO(fbarchard): Compute amount of lines to skip to implement vertical crop
+  int skip = (GetHeight() - dst_height) / 2;
+  if (skip > 0) {
+    while (skip >= GetImageScanlinesPerImcuRow()) {
+      if (!DecodeImcuRow()) {
+        FinishDecode();
+        return false;
+      }
+      skip -= GetImageScanlinesPerImcuRow();
+    }
+    if (skip > 0) {
+      // Have a partial iMCU row left over to skip.
+      if (!DecodeImcuRow()) {
+        FinishDecode();
+        return false;
+      }
+      for (int i = 0; i < num_outbufs_; ++i) {
+        // TODO(fbarchard): Compute skip to avoid this
+        assert(skip % GetVertSubSampFactor(i) == 0);
+        int rows_to_skip = DivideAndRoundDown(skip, GetVertSubSampFactor(i));
+        int data_to_skip = rows_to_skip * GetComponentStride(i);
+        // Change our own data buffer pointers so we can pass them to the
+        // callback.
+        databuf_[i] += data_to_skip;
+      }
+      int scanlines_to_copy = GetImageScanlinesPerImcuRow() - skip;
+      (*fn)(opaque, databuf_, databuf_strides_, scanlines_to_copy, 0);
+      // Now change them back.
+      for (int i = 0; i < num_outbufs_; ++i) {
+        int rows_to_skip = DivideAndRoundDown(skip, GetVertSubSampFactor(i));
+        int data_to_skip = rows_to_skip * GetComponentStride(i);
+        databuf_[i] -= data_to_skip;
+      }
+      lines_left -= scanlines_to_copy;
+    }
+  }
+
+  // Read full MCUs until we get to the crop point.
+  for (; lines_left >= GetImageScanlinesPerImcuRow();
+         lines_left -= GetImageScanlinesPerImcuRow()) {
+    if ( thread_num == 3) {
+        if (decoder->id == 1) { // thread 2
+            if (lines_left > dst_height / 3 && lines_left < dst_height * 2 / 3) {
+                skip_flag[0] = 0;
+            } else if (lines_left < dst_height / 3) {
+                return 0;
+            } else {
+                skip_flag[0] = 1;
+            }
+            skip_flag[1] = 1;
+        } else if(decoder->id == 0) { // thread 1
+            if (lines_left >= dst_height * 2 / 3) {
+                skip_flag[0] = 0;
+            } else {
+                skip_flag[0] = 1;
+                //return FinishDecode();
+                return 0;
+            }
+
+        } else if(decoder->id == 2) { // thread 3
+            if (lines_left <= dst_height / 3) {
+                skip_flag[0] = 0;
+            } else {
+                skip_flag[0] = 1;
+            }
+        }
+    } else {
+        if (decoder->id == 1) { // thread 2
+            if (lines_left < dst_height / 2) {
+                skip_flag[0] = 0;
+            } else {
+                skip_flag[0] = 1;
+            }
+            //skip_flag[1] = 1;
+        } else if(decoder->id == 0) { // thread 1
+            if (lines_left >= dst_height / 2) {
+                skip_flag[0] = 0;
+            } else {
+                skip_flag[0] = 1;
+                //return FinishDecode();
+                return 0;
+            }
+       }
+    }
+
+    if (!DecodeImcuRow(skip_flag)) {
+      //FinishDecode();
+      return false;
+    }
+
+    if (thread_num == 3) {
+        if (decoder->id == 1) { // thread 2
+            if (lines_left > dst_height / 3 && lines_left < dst_height * 2 / 3) {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 0);
+            } else {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 1);
+            }
+        } else if (decoder->id == 0) { // thread 1
+            if (lines_left >= dst_height * 2 / 3) {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 0);
+            } else {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 1);
+            }
+
+        } else if (decoder->id == 2) { // thread 3
+            if (lines_left <= dst_height / 3) {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 0);
+            } else {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 1);
+            }
+        }
+    } else if ( thread_num == 2) {
+        if (decoder->id == 1) { // thread 2
+            if (lines_left < dst_height / 2) {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 0);
+            } else {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 1);
+            }
+        } else if (decoder->id == 0) { // thread 1
+            if (lines_left >= dst_height / 2) {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 0);
+            } else {
+                (*fn)(opaque, databuf_, databuf_strides_, GetImageScanlinesPerImcuRow(), 1);
+            }
+       }
+   }
+  }
+  if (lines_left > 0) {
+    // Have a partial iMCU row left over to decode.
+    skip_flag[0] = 0;
+    skip_flag[1] = 0;
+    if (!DecodeImcuRow(skip_flag)) {
+      //FinishDecode();
+      //return false;
+      return 1;
+    }
+
+
+    (*fn)(opaque, databuf_, databuf_strides_, lines_left, 0);
+  }
+  //return FinishDecode();
+  return 1;
+}
+
+
+
+
 void init_source(j_decompress_ptr cinfo) {
   fill_input_buffer(cinfo);
 }
@@ -539,6 +708,14 @@ inline LIBYUV_BOOL MJpegDecoder::DecodeImcuRow() {
                          scanlines_,
                          GetImageScanlinesPerImcuRow());
 }
+
+inline bool MJpegDecoder::DecodeImcuRow(unsigned char *flag_arr) {
+  return static_cast<unsigned int>(GetImageScanlinesPerImcuRow()) ==
+      jpeg_read_raw_data_flag_arr(decompress_struct_,
+                         scanlines_,
+                         GetImageScanlinesPerImcuRow(), flag_arr);
+}
+
 
 // The helper function which recognizes the jpeg sub-sampling type.
 JpegSubsamplingType MJpegDecoder::JpegSubsamplingTypeHelper(

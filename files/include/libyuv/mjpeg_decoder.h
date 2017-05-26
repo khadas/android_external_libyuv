@@ -70,6 +70,13 @@ class LIBYUV_API MJpegDecoder {
                                    const int* strides,
                                    int rows);
 
+  typedef void (*CallbackFunction_flag)(void* opaque,
+                                   const uint8* const* data,
+                                   const int* strides,
+                                   int rows, int flag);
+
+
+
   static const int kColorSpaceUnknown;
   static const int kColorSpaceGrayscale;
   static const int kColorSpaceRgb;
@@ -148,6 +155,11 @@ class LIBYUV_API MJpegDecoder {
   LIBYUV_BOOL DecodeToCallback(CallbackFunction fn, void* opaque,
                         int dst_width, int dst_height);
 
+  bool DecodeToCallbackMultiThD(struct decode_multi_thd_s * decoder, int thread_num, CallbackFunction_flag fn, void* opaque,
+                        int dst_width, int dst_height);
+
+
+
   // The helper function which recognizes the jpeg sub-sampling type.
   static JpegSubsamplingType JpegSubsamplingTypeHelper(
      int* subsample_x, int* subsample_y, int number_of_components);
@@ -161,6 +173,8 @@ class LIBYUV_API MJpegDecoder {
 
   void SetScanlinePointers(uint8** data);
   LIBYUV_BOOL DecodeImcuRow();
+  bool DecodeImcuRow(unsigned char * flag_arr);
+
 
   int GetComponentScanlinePadding(int component);
 
@@ -185,6 +199,23 @@ class LIBYUV_API MJpegDecoder {
   uint8** databuf_;
   int* databuf_strides_;
 };
+
+struct NV21Buffers {
+  uint8* y;
+  int y_stride;
+  uint8* uv;
+  int uv_stride;
+  int w;
+  int h;
+};
+
+struct  decode_multi_thd_s {
+    MJpegDecoder mjpeg_decoder;
+    NV21Buffers bufs;
+    unsigned int id;
+};
+
+
 
 }  // namespace libyuv
 

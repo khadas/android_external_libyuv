@@ -40,6 +40,15 @@ int I422ToI420(const uint8* src_y, int src_stride_y,
                uint8* dst_v, int dst_stride_v,
                int width, int height);
 
+
+LIBYUV_API
+int I422ToNV21(const uint8* src_y, int src_stride_y,
+               const uint8* src_u, int src_stride_u,
+               const uint8* src_v, int src_stride_v,
+               uint8* dst_y, int dst_stride_y,
+               uint8* dst_uv, int dst_stride_uv,
+               int width, int height);
+
 // Convert I411 to I420.
 LIBYUV_API
 int I411ToI420(const uint8* src_y, int src_stride_y,
@@ -196,6 +205,22 @@ int MJPGToI420(const uint8* sample, size_t sample_size,
                int src_width, int src_height,
                int dst_width, int dst_height);
 
+
+LIBYUV_API
+int MJPGToNV21(const uint8* sample,
+               size_t sample_size,
+               uint8* y, int y_stride,
+               uint8* uv, int uv_stride,
+               int w, int h,
+               int dw, int dh);
+LIBYUV_API
+int MJPGToNV21_MultiThD(const uint8* sample,
+               size_t sample_size,
+               uint8* y, int y_stride,
+               uint8* uv, int uv_stride,
+               int w, int h,
+               int dw, int dh);
+
 // Query size of MJPG in pixels.
 LIBYUV_API
 int MJPGSize(const uint8* sample, size_t sample_size,
@@ -233,6 +258,14 @@ int ConvertToI420(const uint8* src_frame, size_t src_size,
                   int src_width, int src_height,
                   int crop_width, int crop_height,
                   enum RotationMode rotation,
+                  uint32 format);
+
+LIBYUV_API
+int ConvertMjpegToNV21(const uint8* src_frame, size_t src_size,
+                  uint8* dst_y, int dst_stride_y,
+                  uint8* dst_uv, int dst_stride_uv,
+                  int src_width, int src_height,
+                  int dst_width, int dst_height,
                   uint32 format);
 
 #ifdef __cplusplus

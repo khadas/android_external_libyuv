@@ -331,6 +331,51 @@ int ConvertToI420(const uint8* sample,
   return r;
 }
 
+
+#ifdef HAVE_JPEG
+LIBYUV_API
+int ConvertMjpegToNV21(const uint8* sample,
+                  size_t sample_size,
+                  uint8* y, int y_stride,
+                  uint8* uv, int uv_stride,
+                  int src_width, int src_height,
+                  int dst_width, int dst_height,
+                  uint32 format) {
+  if (!y || !uv || !sample ||
+      src_width <= 0 || dst_width <= 0  ||
+      src_height == 0 || dst_height == 0) {
+    return -1;
+  }
+  int abs_src_height = (src_height < 0) ? -src_height : src_height;
+  int inv_dst_height = (dst_height < 0) ? -dst_height : dst_height;
+  if (src_height < 0) {
+    inv_dst_height = -inv_dst_height;
+  }
+  int r = 0;
+
+  if (format == FOURCC_MJPG) {
+      if (src_width * src_height >= 1920 * 1080) {
+          r = MJPGToNV21_MultiThD(sample, sample_size,
+                         y, y_stride,
+                         uv, uv_stride,
+                         src_width, abs_src_height, dst_width, inv_dst_height);
+      } else {
+          r = MJPGToNV21(sample, sample_size,
+                         y, y_stride,
+                         uv, uv_stride,
+                         src_width, abs_src_height, dst_width, inv_dst_height);
+      }
+
+  } else {
+      r = -1;  // unknown fourcc - return failure code.
+  }
+
+  return r;
+}
+#endif
+
+
+
 #ifdef __cplusplus
 }  // extern "C"
 }  // namespace libyuv

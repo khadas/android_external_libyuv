@@ -17,6 +17,23 @@
 #include "libyuv/scale.h"  // For ScalePlane()
 #include "libyuv/row.h"
 
+#include <pthread.h>
+#include <sched.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/prctl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/sysconf.h>
+#include <sys/types.h>
+#include <utils/threads.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/ioctl.h>
+#include <sys/poll.h>
+
+
 #ifdef __cplusplus
 namespace libyuv {
 extern "C" {
@@ -115,6 +132,65 @@ int I422ToI420(const uint8* src_y, int src_stride_y,
                     width, height,
                     src_uv_width, height);
 }
+
+
+static void HalfRowUV_C(const uint8* src_u, int src_u_stride,
+        const uint8* src_v, int src_v_stride,
+        uint8* dst_uv, int pix) {
+  for (int x = 0, i = 0; x < pix; ++x) {
+    dst_uv[i++] = (src_v[x] + src_v[src_v_stride + x] + 1) >> 1;
+    dst_uv[i++] = (src_u[x] + src_u[src_u_stride + x] + 1) >> 1;
+  }
+}
+
+
+
+
+
+LIBYUV_API
+int I422ToNV21(const uint8* src_y, int src_stride_y,
+               const uint8* src_u, int src_stride_u,
+               const uint8* src_v, int src_stride_v,
+               uint8* dst_y, int dst_stride_y,
+               uint8* dst_uv, int dst_stride_uv,
+               int width, int height) {
+  if (!src_y || !src_u || !src_v ||
+      !dst_y || !dst_uv||
+      width <= 0 || height == 0) {
+    return -1;
+  }
+  // Negative height means invert the image.
+  if (height < 0) {
+    height = -height;
+    src_y = src_y + (height - 1) * src_stride_y;
+    src_u = src_u + (height - 1) * src_stride_u;
+    src_v = src_v + (height - 1) * src_stride_v;
+    src_stride_y = -src_stride_y;
+    src_stride_u = -src_stride_u;
+    src_stride_v = -src_stride_v;
+  }
+  int halfwidth = (width + 1) >> 1;
+
+  // Copy Y plane
+  if (dst_y) {
+    CopyPlane(src_y, src_stride_y, dst_y, dst_stride_y, width, height);
+  }
+
+  // SubSample UV plane.
+  int y;
+  for (y = 0; y < height - 1; y += 2) {
+    HalfRowUV_C(src_u, src_stride_u, src_v, src_stride_v, dst_uv, halfwidth);
+    src_u += src_stride_u * 2;
+    src_v += src_stride_v * 2;
+    dst_uv += dst_stride_uv * 2;
+  }
+  if (height & 1) {
+    HalfRowUV_C(src_u, 0, src_v, 0, dst_uv, halfwidth);
+  }
+
+  return 0;
+}
+
 
 // 444 chroma is 1x width, 1x height
 // 420 chroma is 1/2 width, 1/2 height
